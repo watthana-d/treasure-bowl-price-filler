@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TB Price Filler</title>
+<meta name="description" content="Fill the Campaign Price column of Lazada, Shopee and TikTok Treasure Bowl submission files from a commercial price file. Runs entirely in the browser.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+</head>
+<body>
+<style>
+  :root{
+    --ground:#eceff3;
+    --surface:#ffffff;
+    --surface-2:#f5f7f9;
+    --line:#d6dce4;
+    --line-soft:#e6eaf0;
+    --ink:#141b24;
+    --ink-2:#4a5566;
+    --ink-3:#77839a;
+    --accent:#1f56bf;
+    --accent-soft:#e6ecfa;
+    --ok:#12704f;
+    --ok-soft:#e1f2ea;
+    --warn:#96521a;
+    --warn-soft:#fbeedf;
+    --bad:#a8231f;
+    --bad-soft:#fbe7e6;
+    --shadow:0 1px 2px rgba(20,27,36,.06), 0 8px 24px -16px rgba(20,27,36,.3);
+    --r:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0e1319; --surface:#161d26; --surface-2:#1b232e; --line:#2b3644; --line-soft:#232c38;
+      --ink:#e9edf3; --ink-2:#adb8c8; --ink-3:#7c8799; --accent:#6f9bf5; --accent-soft:#1c2941;
+      --ok:#5fd0a3; --ok-soft:#14301f; --warn:#e0a460; --warn-soft:#2f2415; --bad:#f08a84; --bad-soft:#341a19;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0e1319; --surface:#161d26; --surface-2:#1b232e; --line:#2b3644; --line-soft:#232c38;
+    --ink:#e9edf3; --ink-2:#adb8c8; --ink-3:#7c8799; --accent:#6f9bf5; --accent-soft:#1c2941;
+    --ok:#5fd0a3; --ok-soft:#14301f; --warn:#e0a460; --warn-soft:#2f2415; --bad:#f08a84; --bad-soft:#341a19;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.8);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--ground);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:24px 64px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+  header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 20px;margin-bottom:20px}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.01em;margin:0;text-wrap:balance}
+  .sub{color:var(--ink-2);margin:4px 0 0;max-width:62ch}
+  .badge{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:5px 11px;white-space:nowrap}
+
+  /* platform picker */
+  .platforms{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+  .platforms .lab{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-right:2px}
+  .chip{appearance:none;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);
+    border-radius:999px;padding:6px 14px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip .auto{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+  .platforms .why{font-size:12.5px;color:var(--ink-3);flex:1;min-width:140px;text-align:right}
+
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:720px){.steps{grid-template-columns:1fr}.platforms .why{text-align:left}}
+  .drop{
+    background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);
+    padding:18px;display:flex;flex-direction:column;gap:10px;transition:border-color .15s,background .15s;
+  }
+  .drop.over{border-color:var(--accent);background:var(--accent-soft)}
+  .drop.filled{border-style:solid;box-shadow:var(--shadow)}
+  .step-no{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
+  .drop h2{font-size:15px;font-weight:600;margin:0}
+  .hint{color:var(--ink-3);font-size:12.5px;margin:0}
+  .hint.warnText{color:var(--warn)}
+  .filelist{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+  .filelist li{display:flex;align-items:center;gap:8px;font-size:12.5px;background:var(--surface-2);
+    border:1px solid var(--line-soft);border-radius:7px;padding:6px 9px}
+  .filelist .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tbtag{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;color:var(--ok);
+    background:var(--ok-soft);border-radius:5px;padding:2px 6px;white-space:nowrap}
+  .tbtag.miss{color:var(--warn);background:var(--warn-soft)}
+  .x{border:0;background:none;color:var(--ink-3);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;border-radius:5px}
+  .x:hover{color:var(--bad);background:var(--bad-soft)}
+
+  button{font:inherit}
+  .btn{
+    appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+    border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:500;cursor:pointer;
+  }
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.08);color:#fff}
+  .btn:disabled{opacity:.45;cursor:not-allowed;border-color:var(--line);color:var(--ink-3);filter:none}
+  .btn.sm{padding:5px 10px;font-size:12.5px}
+  :where(button,input,select,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .runbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:18px 0 0;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+  .runbar .grow{flex:1;min-width:160px}
+  label.chk{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font-size:13px;cursor:pointer}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line-soft);
+    border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:22px}
+  .stat{background:var(--surface);padding:14px 16px}
+  .stat .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+  .stat .v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:26px;font-weight:600;line-height:1.2;margin-top:3px}
+  .stat .v.ok{color:var(--ok)} .stat .v.warn{color:var(--warn)}
+
+  section.results{margin-top:22px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+  .card.err{border-color:var(--bad)}
+  .card-head{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line-soft)}
+  .tbno{font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .cname{color:var(--ink-2);font-size:12.5px;flex:1;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pill{font-size:11.5px;font-weight:500;border-radius:999px;padding:3px 9px;white-space:nowrap}
+  .pill.ok{color:var(--ok);background:var(--ok-soft)}
+  .pill.warn{color:var(--warn);background:var(--warn-soft)}
+  .pill.bad{color:var(--bad);background:var(--bad-soft)}
+  .pill.plain{color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line-soft)}
+  .card-body{padding:12px 16px 16px;display:flex;flex-direction:column;gap:12px}
+  .metrics{display:flex;flex-wrap:wrap;gap:18px}
+  .metric .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .metric .v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:18px;font-weight:600}
+  .srcfile{font-size:12px;color:var(--ink-3);word-break:break-all}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line-soft);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{text-align:left;font-weight:500;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+    background:var(--surface-2);padding:8px 10px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right}
+  td.name{white-space:normal;min-width:180px;color:var(--ink-2)}
+  .rowstate{font-size:11px;font-weight:500;border-radius:5px;padding:2px 6px}
+  .rowstate.keep{color:var(--ok);background:var(--ok-soft)}
+  .rowstate.drop{color:var(--bad);background:var(--bad-soft)}
+  details summary{cursor:pointer;font-size:12.5px;color:var(--accent);list-style:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary::before{content:"\25b8 ";font-size:10px}
+  details[open] summary::before{content:"\25be "}
+  .foot{margin-top:28px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));
+    background:var(--ink);color:var(--ground);padding:9px 15px;border-radius:999px;font-size:13px;z-index:20;box-shadow:var(--shadow)}
+  .sel{font:inherit;font-size:12.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink)}
+  .note{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;padding:10px 12px;font-size:12.5px;color:var(--ink-2)}
+  .note + .note{margin-top:8px}
+  .keytable{width:100%;font-size:12.5px;border-collapse:collapse;margin-top:8px}
+  .keytable td{border:0;padding:3px 10px 3px 0;white-space:nowrap;vertical-align:top}
+  .keytable td:first-child{font-weight:600;color:var(--ink)}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div style="flex:1;min-width:240px">
+      <h1>Treasure Bowl Price Filler</h1>
+      <p class="sub">Fills the Campaign Price column of a Lazada, Shopee or TikTok Treasure Bowl file from the brand's commercial price file, matching on whichever ID that platform submits with.</p>
+    </div>
+    <span class="badge">TH store ops</span>
+  </header>
+
+  <div class="platforms">
+    <span class="lab">Platform</span>
+    <button class="chip" id="pAuto" aria-pressed="true" data-p="auto">Auto <span class="auto" id="autoName"></span></button>
+    <button class="chip" aria-pressed="false" data-p="lazada">Lazada</button>
+    <button class="chip" aria-pressed="false" data-p="shopee">Shopee</button>
+    <button class="chip" aria-pressed="false" data-p="tiktok">TikTok</button>
+    <span class="why" id="pWhy">Detected from the TB file's own columns.</span>
+  </div>
+
+  <div class="steps">
+    <div class="drop" id="dropCom">
+      <span class="step-no">Step 1</span>
+      <h2>Commercial price file</h2>
+      <p class="hint">The TB code row — <strong>Treasure Bowl ID</strong>, <strong>TBS ID</strong>, <strong>TB code</strong>, <strong>link code</strong> — is found on whichever tab suits the platform.</p>
+      <ul class="filelist" id="listCom"></ul>
+      <div><button class="btn sm" id="btnCom">Choose file</button></div>
+      <input type="file" id="fileCom" accept=".xlsx,.xlsm" hidden>
+      <p class="hint" id="comInfo"></p>
+      <p class="hint warnText" id="comWarn"></p>
+    </div>
+
+    <div class="drop" id="dropTbs">
+      <span class="step-no">Step 2</span>
+      <h2>TB files</h2>
+      <p class="hint">One or many. The TB code is read from the filename — after <span class="mono">#</span>, else whichever code matches the price file.</p>
+      <ul class="filelist" id="listTbs"></ul>
+      <div><button class="btn sm" id="btnTbs">Choose files</button></div>
+      <input type="file" id="fileTbs" accept=".xlsx,.xlsm" multiple hidden>
+    </div>
+  </div>
+
+  <div class="runbar">
+    <label class="chk"><input type="checkbox" id="optDrop" checked> Remove SKUs not found in the price file</label>
+    <span class="grow"></span>
+    <button class="btn primary" id="btnRun" disabled>Map prices</button>
+    <button class="btn" id="btnAll" hidden>Download all</button>
+  </div>
+
+  <div id="dlNote"></div>
+
+  <div id="statsBox" hidden>
+    <div class="stats">
+      <div class="stat"><div class="k">TB codes</div><div class="v" id="sTb">0</div></div>
+      <div class="stat"><div class="k">SKU filled</div><div class="v ok" id="sFill">0</div></div>
+      <div class="stat"><div class="k">SKU removed</div><div class="v warn" id="sDrop">0</div></div>
+      <div class="stat"><div class="k">Files ready</div><div class="v" id="sFiles">0</div></div>
+    </div>
+  </div>
+
+  <section class="results" id="results"></section>
+
+  <div id="idle">
+    <div class="note" style="margin-top:22px">
+      <strong>What each platform matches on.</strong> The TB file's own columns decide the platform, and the price file's tab is chosen to suit it.
+      <table class="keytable">
+        <tr><td>Lazada</td><td>Seller SKU, then Shop SKU</td><td class="mono">Campaign Price（Mandatory）</td></tr>
+        <tr><td>Shopee</td><td>Variation ID only</td><td class="mono">Campaign Price</td></tr>
+        <tr><td>TikTok</td><td>SKU ID, then Product ID</td><td class="mono">Campaign price</td></tr>
+      </table>
+    </div>
+    <div class="note">
+      <strong>In the price file</strong>, every 4–20 digit code on the TB row becomes a selectable Treasure Bowl (Lazada runs 6 digits, Shopee 15) — including combined cells such as <span class="mono">383455/383582</span>, where both share one price column. If that column is a discount, the paired price column beside it is used. Codes that aren't 6 digits are flagged. Nothing is written back to the price file.
+    </div>
+  </div>
+
+  <p class="foot">Files are read in your browser — nothing is uploaded. The download is your own TB file — same filename, same sheet, same columns, header and note rows, column widths and cell types. Only Campaign Price is written, and unmatched rows removed if you asked for that.</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function(){
+  "use strict";
+  if(typeof XLSX==="undefined"){
+    var w=document.createElement("div"); w.className="note"; w.style.marginTop="16px";
+    w.textContent="The spreadsheet engine could not load. Reload the page — if it keeps failing, your network may be blocking the script.";
+    document.getElementById("dlNote").appendChild(w);
+    document.getElementById("btnRun").disabled=true;
+    return;
+  }
+
+  var $=function(id){return document.getElementById(id);};
+  var norm=function(v){return (v==null?"":String(v)).replace(/\s+/g," ").trim();};
+  var low=function(v){return norm(v).toLowerCase();};
+  var keyOf=function(v){return norm(v).toUpperCase();};
+
+  /* ---------- platforms ---------- */
+  var PLATFORMS={
+    lazada:{label:"Lazada", tab:/lazada|lzd/i,          keys:["sellerSku","shopSku"],      comKey:/seller\s*sku|lazada\s*sku|shop\s*sku|barcode|ean|^sku\b/},
+    shopee:{label:"Shopee", tab:/shopee|shp/i,          keys:["variationId"],              comKey:/variation\s*id/},
+    tiktok:{label:"TikTok", tab:/tik\s*tok|tiktok|\btt\b/i, keys:["skuId","productId"],    comKey:/\bsku\s*id\b|\bproduct\s*id\b/}
+  };
+  var chosen="auto", detected="lazada";
+  var effective=function(){ return chosen==="auto"?detected:chosen; };
+
+  var comFile=null, comCands=[], comData=null, tbsFiles=[], outputs=[];
+
+  function toast(msg){
+    var t=document.createElement("div");
+    t.className="toast"; t.textContent=msg; document.body.appendChild(t);
+    setTimeout(function(){ t.remove(); },2800);
+  }
+  function el(tag,cls,txt){ var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e; }
+
+  /* ---------- files in ---------- */
+  function wireDrop(zone,input,multiple,onFiles){
+    zone.addEventListener("dragover",function(e){e.preventDefault();zone.classList.add("over");});
+    zone.addEventListener("dragleave",function(){zone.classList.remove("over");});
+    zone.addEventListener("drop",function(e){
+      e.preventDefault(); zone.classList.remove("over");
+      var fs=[].slice.call(e.dataTransfer.files).filter(function(f){return /\.xls[xm]$/i.test(f.name);});
+      if(!fs.length){ toast("Excel files only (.xlsx)"); return; }
+      onFiles(multiple?fs:[fs[0]]);
+    });
+    input.addEventListener("change",function(){
+      if(input.files.length) onFiles([].slice.call(input.files));
+      input.value="";
+    });
+  }
+  wireDrop($("dropCom"),$("fileCom"),false,function(fs){ setCom(fs[0]); });
+  wireDrop($("dropTbs"),$("fileTbs"),true,function(fs){ addTbs(fs); });
+  $("btnCom").addEventListener("click",function(){ $("fileCom").click(); });
+  $("btnTbs").addEventListener("click",function(){ $("fileTbs").click(); });
+
+  function readBook(file){
+    return file.arrayBuffer().then(function(buf){ return XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true}); });
+  }
+  function aoaOf(ws){ return XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:null,blankrows:true}); }
+
+  /* ---------- commercial price file ---------- */
+  function isIdLabel(v){
+    var t=low(v); if(!t) return false;
+    if(/treasure\s*bowl\s*(id|no|number|code|link)/.test(t)) return true;
+    if(/(^|[^a-z])tbs?\s*(id|no|number|code|link)([^a-z]|$)/.test(t)) return true;
+    if(/\blink\s*(code|id|no|number)\b/.test(t)) return true;
+    return /\b(deal|campaign|bowl)\s*(code|id)\b/.test(t);
+  }
+  function idsIn(cell){
+    var txt=norm(cell);
+    /* dates and times are never TB codes */
+    if(/\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(txt)||/\d{1,2}:\d{2}/.test(txt)) return [];
+    var out=[], parts=txt.split(/[^0-9]+/);
+    for(var i=0;i<parts.length;i++){
+      if(/^\d{4,20}$/.test(parts[i]) && out.indexOf(parts[i])<0) out.push(parts[i]);
+    }
+    return out;
+  }
+  function countIds(row){
+    var n=0; for(var i=0;i<(row||[]).length;i++){ if(idsIn(row[i]).length) n++; }
+    return n;
+  }
+  function isPriceHead(v){ var t=low(v); return /price|pice|ราคา/.test(t) && !/discount|%/.test(t); }
+  function isDiscHead(v){ var t=low(v); return /discount|%/.test(t); }
+  function isKeyHead(v){ return /sku|variation\s*id|barcode|item\s*id|product\s*id|ean|article/.test(low(v)); }
+  function nDigits(v){ return /^\d{4,20}$/.test(norm(v)); }
+
+  function parseCommercial(wb){
+    var out=[];
+    for(var s=0;s<wb.SheetNames.length;s++){
+      var aoa=aoaOf(wb.Sheets[wb.SheetNames[s]]);
+      var a=parseLong(wb.SheetNames[s],aoa); if(a) out.push(a);
+      var b=parseWide(wb.SheetNames[s],aoa); if(b) out.push(b);
+    }
+    return out;
+  }
+
+  function headerBelow(aoa,r){
+    for(var h=r+1;h<=Math.min(r+4,aoa.length-1);h++){
+      var hr=aoa[h]||[], k=false, pr=false;
+      for(var c=0;c<hr.length;c++){ if(isKeyHead(hr[c])) k=true; if(isPriceHead(hr[c])) pr=true; }
+      if(k&&pr) return hr;
+    }
+    return null;
+  }
+  /* an unlabelled row only counts as TB codes when those codes sit over price columns */
+  function codesOverPrices(aoa,r){
+    var head=headerBelow(aoa,r); if(!head) return 0;
+    var row=aoa[r]||[], n=0;
+    for(var c=0;c<row.length;c++){
+      if((isPriceHead(head[c])||isDiscHead(head[c])) && idsIn(row[c]).length) n++;
+    }
+    return n;
+  }
+
+  /* Wide — one column per Treasure Bowl, codes on a header row */
+  function parseWide(name,aoa){
+    var lim=Math.min(aoa.length,60), r, c, idRowIx=-1, labelCol=-1, label="";
+
+    for(r=0;r<lim && idRowIx<0;r++){
+      var row=aoa[r]||[];
+      for(c=0;c<row.length;c++){
+        if(isIdLabel(row[c]) && countIds(row)>0){ idRowIx=r; labelCol=c; label=norm(row[c]); break; }
+      }
+    }
+    if(idRowIx<0){
+      /* an unlabelled code row only counts when a real header row follows it,
+         otherwise any data row of prices would look like TB codes */
+      var bestN=0;
+      for(r=0;r<lim;r++){
+        var n=codesOverPrices(aoa,r);
+        if(n>bestN){ bestN=n; idRowIx=r; }
+      }
+      if(idRowIx<0||!bestN) return null;
+      var lr=aoa[idRowIx]||[];
+      for(c=0;c<lr.length;c++){ if(norm(lr[c]) && !idsIn(lr[c]).length) labelCol=c; }
+      label="(unlabelled row "+(idRowIx+1)+")";
+    }
+
+    var idRow=aoa[idRowIx]||[], headIx=idRowIx+1;
+    for(var h=idRowIx+1;h<=Math.min(idRowIx+4,aoa.length-1);h++){
+      var hr=aoa[h]||[], hit=false;
+      for(var q=0;q<hr.length;q++){ if(isPriceHead(hr[q])||isKeyHead(hr[q])){ hit=true; break; } }
+      if(hit){ headIx=h; break; }
+    }
+    var headRow=aoa[headIx]||[];
+
+    /* metadata above, labelled in the ID label's column; labels matched loosely (files carry typos) */
+    var meta={}, names=[];
+    for(var m=0;m<idRowIx;m++){
+      var mr=aoa[m]||[], lbl=low(labelCol>=0?mr[labelCol]:"");
+      if(!lbl) continue;
+      if(/start/.test(lbl)) meta.start=mr;
+      else if(/end/.test(lbl)) meta.end=mr;
+      else if(/tier/.test(lbl)) meta.tier=mr;
+      else if(/treasure\s*bowl\s*name|tb\s*name/.test(lbl)) meta.tbname=mr;
+      else if(/name/.test(lbl)||/cam+a?p+a?ign/.test(lbl)) names.push(mr);
+    }
+    if(names.length) meta.campaign=names[0];
+    if(!meta.tbname && names.length>1) meta.tbname=names[1];
+    var at=function(k,j){ return meta[k]?norm(meta[k][j]):""; };
+
+    var tbs={}, firstTb=-1;
+    for(var j=0;j<idRow.length;j++){
+      if(j===labelCol) continue;
+      var ids=idsIn(idRow[j]); if(!ids.length) continue;
+      var priceCol=j;
+      if(isDiscHead(headRow[j])){
+        if(isPriceHead(headRow[j-1])) priceCol=j-1;
+        else if(isPriceHead(headRow[j+1])) priceCol=j+1;
+      }
+      if(firstTb<0||j<firstTb) firstTb=j;
+      for(var k=0;k<ids.length;k++){
+        if(tbs[ids[k]]) continue;
+        tbs[ids[k]]={col:priceCol,campaign:at("campaign",j),tbName:at("tbname",j),
+                     start:at("start",j),end:at("end",j),tier:at("tier",j),header:norm(headRow[priceCol])};
+      }
+    }
+    if(!Object.keys(tbs).length) return null;
+    if(firstTb<0) firstTb=idRow.length;
+
+    var scanTo=Math.min(firstTb,Math.max((labelCol>=0?labelCol:0)+1,headRow.length));
+    var keyCols=[], heads={};
+    for(var a=0;a<scanTo;a++){ if(isKeyHead(headRow[a])){ keyCols.push(a); heads[a]=norm(headRow[a]); } }
+    if(!keyCols.length){ keyCols=[0]; heads[0]=norm(headRow[0])||"column A"; }
+
+    var nameCol=-1;
+    for(var b=0;b<scanTo;b++){
+      var nt=low(headRow[b]);
+      if(nt==="name"||/product\s*name|description/.test(nt)){ nameCol=b; break; }
+    }
+
+    var rows=aoa.slice(headIx+1), byCol={};
+    for(var w=0;w<keyCols.length;w++){
+      var col=keyCols[w], idx={};
+      for(var i=0;i<rows.length;i++){
+        var kv=keyOf(rows[i][col]);
+        if(kv && idx[kv]===undefined) idx[kv]=i;
+      }
+      byCol[col]=idx;
+    }
+    return {mode:"wide",sheet:name,tbs:tbs,rows:rows,byCol:byCol,keyCols:keyCols,heads:heads,
+            nameCol:nameCol,label:label,idRow:idRowIx,headerRow:headIx};
+  }
+
+  /* Long — one row per SKU x Treasure Bowl */
+  function parseLong(name,aoa){
+    var lim=Math.min(aoa.length,40), headIx=-1, idCol=-1, priceCol=-1, keyCols=[], nameCol=-1;
+
+    for(var r=0;r<lim && headIx<0;r++){
+      var hr=aoa[r]||[], id=-1, keys=[], price=-1, alt=-1, nm=-1;
+      for(var c=0;c<hr.length;c++){
+        var t=low(hr[c]); if(!t) continue;
+        if(id<0 && isIdLabel(hr[c]) && !isKeyHead(hr[c])) id=c;
+        if(isKeyHead(hr[c])) keys.push(c);
+        if(isPriceHead(hr[c])){
+          if(/campaign|deal|promo|tb/.test(t)){ if(price<0) price=c; }
+          else if(alt<0) alt=c;
+        }
+        if(nm<0 && (t==="name"||/product\s*name|description/.test(t))) nm=c;
+      }
+      if(price<0) price=alt;
+      if(id<0||price<0||!keys.length) continue;
+      var hits=0;
+      for(var d=r+1;d<Math.min(aoa.length,r+60);d++){ if(nDigits((aoa[d]||[])[id])) hits++; }
+      if(!hits) continue;
+      headIx=r; idCol=id; priceCol=price; keyCols=keys; nameCol=nm;
+    }
+    if(headIx<0) return null;
+
+    var hrow=aoa[headIx]||[], campCol=-1, tierCol=-1, tbNameCol=-1, heads={};
+    for(var q=0;q<hrow.length;q++){
+      var ht=low(hrow[q]);
+      if(campCol<0 && /campaign\s*name|^campaign$/.test(ht)) campCol=q;
+      if(tierCol<0 && /tier/.test(ht)) tierCol=q;
+      if(tbNameCol<0 && /treasure\s*bowl\s*name|tb\s*name/.test(ht)) tbNameCol=q;
+    }
+    for(var kk=0;kk<keyCols.length;kk++) heads[keyCols[kk]]=norm(hrow[keyCols[kk]]);
+
+    var tbs={}, byCol={}, any=false;
+    for(var z=0;z<keyCols.length;z++) byCol[keyCols[z]]={};
+    for(var i=headIx+1;i<aoa.length;i++){
+      var row=aoa[i]||[];
+      var ids=idsIn(row[idCol]); if(!ids.length) continue;
+      var price=parseFloat(norm(row[priceCol]).replace(/[^0-9.\-]/g,""));
+      for(var a=0;a<ids.length;a++){
+        var id=ids[a];
+        if(!tbs[id]){
+          tbs[id]={col:priceCol,campaign:campCol>=0?norm(row[campCol]):"",
+                   tbName:tbNameCol>=0?norm(row[tbNameCol]):"",start:"",end:"",
+                   tier:tierCol>=0?norm(row[tierCol]):"",header:norm(hrow[priceCol])};
+        }
+        for(var k2=0;k2<keyCols.length;k2++){
+          var kv=keyOf(row[keyCols[k2]]); if(!kv) continue;
+          var mk=id+"\u0000"+kv;
+          if(byCol[keyCols[k2]][mk]===undefined){
+            byCol[keyCols[k2]][mk]={price:isFinite(price)?price:null,name:nameCol>=0?norm(row[nameCol]):""};
+            any=true;
+          }
+        }
+      }
+    }
+    if(!Object.keys(tbs).length||!any) return null;
+    return {mode:"long",sheet:name,tbs:tbs,rows:[],byCol:byCol,keyCols:keyCols,heads:heads,
+            nameCol:nameCol,label:norm(hrow[idCol])||"TB code column",idRow:headIx,headerRow:headIx};
+  }
+
+  /* choose the candidate that fits the platform, and index only that platform's key columns */
+  function pickCom(){
+    if(!comCands.length){ comData=null; return; }
+    var p=PLATFORMS[effective()], best=null, bestScore=-1;
+    for(var i=0;i<comCands.length;i++){
+      var cand=comCands[i], score=Object.keys(cand.tbs).length*1000;
+      if(p.tab.test(cand.sheet)) score+=4000000;
+      if(matchKeyCols(cand,p).length) score+=2000000;
+      if(cand.mode==="long") score+=500000;
+      if(score>bestScore){ bestScore=score; best=cand; }
+    }
+    comData=best;
+    comData.useCols=matchKeyCols(best,p);
+    comData.strict=comData.useCols.length>0;
+    if(!comData.strict) comData.useCols=best.keyCols.slice();
+    var n=0, c;
+    for(var u=0;u<comData.useCols.length;u++){
+      c=comData.useCols[u];
+      for(var k in best.byCol[c]){ if(Object.prototype.hasOwnProperty.call(best.byCol[c],k)) n++; }
+    }
+    comData.skuCount=n;
+    comData.platform=effective();
+  }
+  function matchKeyCols(cand,p){
+    var out=[], others=Object.keys(PLATFORMS).filter(function(k){ return PLATFORMS[k]!==p; });
+    for(var i=0;i<cand.keyCols.length;i++){
+      var c=cand.keyCols[i], h=low(cand.heads[c]);
+      var foreign=others.some(function(k){ return PLATFORMS[k].tab.test(h); });
+      if(!foreign && p.comKey.test(h)) out.push(c);
+    }
+    /* Shopee matches on Variation ID alone; the others may use several columns */
+    return out;
+  }
+
+  function setCom(file){
+    comFile=file; comCands=[]; comData=null;
+    renderCom("Reading…","");
+    readBook(file).then(function(wb){
+      comCands=parseCommercial(wb);
+      if(!comCands.length){
+        comFile=null;
+        renderCom("No TB code found. Tabs read: "+wb.SheetNames.join(", ")+
+                  ". The file needs a row or column of TB codes beside a price column.","");
+        toast("No Treasure Bowl code found in that workbook");
+        return;
+      }
+      pickCom(); describeCom(); retagTbs(); refresh();
+    }).catch(function(e){
+      comFile=null; renderCom("",""); toast("Could not read that file"); console.error(e);
+    });
+  }
+
+  function describeCom(){
+    if(!comData){ renderCom("",""); return; }
+    var p=PLATFORMS[comData.platform];
+    var ids=Object.keys(comData.tbs);
+    var odd=ids.filter(function(id){ return id.length<6; });
+    var keyNames=comData.useCols.map(function(c){ return comData.heads[c]; }).join(", ");
+    var info=ids.length+" TB code"+(ids.length===1?"":"s")+" on “"+comData.sheet+"” · read from “"+
+      comData.label+"” (row "+(comData.idRow+1)+", "+
+      (comData.mode==="long"?"one row per SKU":"one column per TB")+") · matching on "+keyNames+
+      " · "+comData.skuCount+" keys";
+    var warn="";
+    if(!comData.strict) warn="No "+p.label+" key column on this tab — falling back to "+keyNames+". Check the result before submitting.";
+    else if(odd.length) warn="Check "+odd.join(", ")+" — shorter than a normal TB code.";
+    else if(odd.length&&!comData.strict) warn+=" Check "+odd.join(", ")+".";
+    renderCom(info,warn);
+  }
+
+  function renderCom(info,warn){
+    var ul=$("listCom"); ul.innerHTML="";
+    $("dropCom").classList.toggle("filled",!!comFile);
+    if(comFile){
+      var li=document.createElement("li");
+      var nm=el("span","nm mono",comFile.name);
+      var x=el("button","x","×"); x.type="button"; x.setAttribute("aria-label","Remove price file");
+      x.addEventListener("click",function(){ comFile=null;comCands=[];comData=null;renderCom("","");retagTbs();refresh(); });
+      li.appendChild(nm); li.appendChild(x); ul.appendChild(li);
+    }
+    $("comInfo").textContent=info||"";
+    $("comWarn").textContent=warn||"";
+    refresh();
+  }
+
+  /* ---------- platform chips ---------- */
+  [].slice.call(document.querySelectorAll(".chip")).forEach(function(btn){
+    btn.addEventListener("click",function(){
+      chosen=btn.getAttribute("data-p");
+      paintChips();
+      if(comCands.length){ pickCom(); describeCom(); }
+      retagTbs(); refresh();
+    });
+  });
+  function paintChips(){
+    [].slice.call(document.querySelectorAll(".chip")).forEach(function(b){
+      b.setAttribute("aria-pressed",String(b.getAttribute("data-p")===chosen));
+    });
+    $("autoName").textContent=chosen==="auto"?("· "+PLATFORMS[detected].label):"";
+    $("pWhy").textContent=chosen==="auto"
+      ? (tbsFiles.length?("Detected "+PLATFORMS[detected].label+" from the TB file's columns."):"Detected from the TB file's own columns.")
+      : ("Forced to "+PLATFORMS[chosen].label+" — detection ignored.");
+  }
+
+  /* ---------- TB files ---------- */
+  function detectTb(filename){
+    var base=filename.replace(/\.[^.]+$/,"");
+    var known=comData?comData.tbs:null;
+    var cands=[], re=/(#\s*)?(\d{4,20})/g, m;
+    while((m=re.exec(base))!==null){ cands.push({id:m[2],hash:!!m[1]}); }
+    for(var i=1;i<cands.length;i++){
+      if(cands[i-1].hash && base.indexOf(cands[i-1].id+"/"+cands[i].id)>=0) cands[i].hash=true;
+    }
+    var pick=function(test){ for(var j=cands.length-1;j>=0;j--){ if(test(cands[j])) return cands[j]; } return null; };
+    var hit;
+    if(known){
+      hit=pick(function(c){ return c.hash && known[c.id]; });
+      if(hit) return {id:hit.id,how:"after # and in the price file"};
+      hit=pick(function(c){ return !!known[c.id]; });
+      if(hit) return {id:hit.id,how:"matched in the price file"};
+    }
+    hit=pick(function(c){ return c.hash; });
+    if(hit) return {id:hit.id,how:"after #"};
+    /* with a price file loaded, never pre-select a code it doesn't know */
+    if(known) return {id:"",how:"no matching code in the filename \u2014 pick one"};
+    hit=pick(function(c){ return c.id.length===6; });
+    if(hit) return {id:hit.id,how:"6-digit code in the name"};
+    if(cands.length) return {id:cands[cands.length-1].id,how:"last number in the name"};
+    return {id:"",how:""};
+  }
+
+  function addTbs(fs){
+    var pending=fs.filter(function(f){
+      return !tbsFiles.some(function(t){ return t.file.name===f.name && t.file.size===f.size; });
+    });
+    if(!pending.length) return;
+    var chain=Promise.resolve();
+    pending.forEach(function(f){
+      chain=chain.then(function(){
+        return readBook(f).then(function(wb){
+          var probe=probePlatform(wb);
+          var d=detectTb(f.name);
+          tbsFiles.push({file:f,tb:d.id,how:d.how,probe:probe});
+        }).catch(function(){
+          tbsFiles.push({file:f,tb:detectTb(f.name).id,how:"",probe:null});
+        });
+      });
+    });
+    chain.then(function(){
+      var first=tbsFiles.filter(function(t){return t.probe;})[0];
+      if(first) detected=first.probe;
+      paintChips();
+      if(comCands.length){ pickCom(); describeCom(); }
+      renderTbs(); refresh();
+    });
+  }
+
+  /* which platform a TB file belongs to, from its own headers */
+  function probePlatform(wb){
+    var t=parseTbs(wb,null);
+    return t?t.platform:null;
+  }
+
+  function retagTbs(){
+    tbsFiles.forEach(function(t){ var d=detectTb(t.file.name); t.tb=d.id; t.how=d.how; });
+    renderTbs();
+  }
+
+  function renderTbs(){
+    var ul=$("listTbs"); ul.innerHTML="";
+    $("dropTbs").classList.toggle("filled",tbsFiles.length>0);
+    tbsFiles.forEach(function(t,i){
+      var li=document.createElement("li");
+      li.appendChild(el("span","nm mono",t.file.name));
+      if(t.probe) li.appendChild(el("span","tbtag"+(t.probe===effective()?"":" miss"),PLATFORMS[t.probe].label));
+
+      if(comData){
+        var sel=document.createElement("select"); sel.className="sel mono";
+        sel.setAttribute("aria-label","Treasure Bowl code for "+t.file.name);
+        var opt0=el("option",null,"— pick TB —"); opt0.value=""; sel.appendChild(opt0);
+        Object.keys(comData.tbs).sort().forEach(function(id){
+          var o=el("option",null,"#"+id+(id.length<6?" · short code":"")); o.value=id; sel.appendChild(o);
+        });
+        if(t.tb && !comData.tbs[t.tb]){
+          var oX=el("option",null,"#"+t.tb+" (not in price file)"); oX.value=t.tb; sel.appendChild(oX);
+        }
+        sel.value=t.tb||"";
+        sel.title=t.how?("TB detected "+t.how):"Pick the Treasure Bowl for this file";
+        sel.addEventListener("change",function(){ t.tb=sel.value; t.how="chosen manually"; refresh(); });
+        li.appendChild(sel);
+      }else{
+        li.appendChild(el("span","tbtag"+(t.tb?"":" miss"),t.tb?("#"+t.tb):"no TB code"));
+      }
+
+      var x=el("button","x","×"); x.type="button"; x.setAttribute("aria-label","Remove "+t.file.name);
+      x.addEventListener("click",function(){ tbsFiles.splice(i,1); renderTbs(); refresh(); });
+      li.appendChild(x);
+      ul.appendChild(li);
+    });
+  }
+
+  function refresh(){ $("btnRun").disabled=!(comData && tbsFiles.length); }
+
+  /* ---------- TB file layout ---------- */
+  var TB_COLS=[
+    ["variationId",/variation\s*id/],
+    ["skuId",/\bsku\s*id\b/],
+    ["shopSku",/shop\s*sku/],
+    ["sellerSku",/seller\s*sku/],
+    ["productId",/product\s*id/],
+    ["name",/product\s*name/],
+    ["sales",/sales?\s*price|original\s*price|current\s*price/]
+  ];
+
+  function parseTbs(wb,forced){
+    var sheet=wb.SheetNames[0], aoa=aoaOf(wb.Sheets[sheet]);
+    if(!aoa.length) return null;
+
+    var headIx=-1, priceCol=-1;
+    for(var r=0;r<Math.min(aoa.length,10) && headIx<0;r++){
+      var row=aoa[r]||[];
+      for(var c=0;c<row.length;c++){
+        var t=low(row[c]);
+        /* a header cell, not a sentence: TikTok files open with a "Tip:" line */
+        if(t.length<=40 && /campaign\s*price/.test(t) && !/recommend/.test(t)){ headIx=r; priceCol=c; break; }
+      }
+    }
+    if(headIx<0) return null;
+
+    var head=aoa[headIx]||[], col={};
+    for(var i=0;i<head.length;i++){
+      var ht=low(head[i]); if(!ht) continue;
+      for(var k=0;k<TB_COLS.length;k++){
+        var nm2=TB_COLS[k][0];
+        if(col[nm2]===undefined && TB_COLS[k][1].test(ht)) col[nm2]=i;
+      }
+    }
+
+    var platform=forced;
+    if(!platform){
+      if(col.variationId!==undefined) platform="shopee";
+      else if(col.skuId!==undefined && col.sellerSku===undefined) platform="tiktok";
+      else platform="lazada";
+    }
+    var keys=PLATFORMS[platform].keys.filter(function(k){ return col[k]!==undefined; });
+
+    /* first data row: skip the "Optional / Mandatory" and description rows Shopee ships */
+    var probe=keys.length?col[keys[0]]:0, start=headIx+1;
+    while(start<aoa.length){
+      var row2=aoa[start]||[], cell=norm(row2[probe]), lc=low(cell);
+      if(cell && lc!=="optional" && lc!=="mandatory" && cell.length<=60) break;
+      start++;
+    }
+    return {sheet:sheet,aoa:aoa,head:head,col:col,keys:keys,priceCol:priceCol,
+            platform:platform,start:start,headIx:headIx};
+  }
+
+  /* ---------- price lookup ---------- */
+  function priceFor(tbId,keyVals){
+    var tb=comData.tbs[tbId]; if(!tb) return null;
+    var cols=comData.useCols, i, c;
+    for(i=0;i<keyVals.length;i++){
+      var kv=keyVals[i]; if(!kv) continue;
+      for(c=0;c<cols.length;c++){
+        var bucket=comData.byCol[cols[c]];
+        if(comData.mode==="long"){
+          var hit=bucket[tbId+"\u0000"+kv];
+          if(hit) return {found:true,price:hit.price,name:hit.name};
+        }else{
+          var idx=bucket[kv];
+          if(idx!==undefined){
+            var num=parseFloat(norm(comData.rows[idx][tb.col]).replace(/[^0-9.\-]/g,""));
+            return {found:true,price:isFinite(num)?num:null,
+                    name:comData.nameCol>=0?norm(comData.rows[idx][comData.nameCol]):""};
+          }
+        }
+      }
+    }
+    return {found:false,price:null,name:""};
+  }
+
+  /* ---------- writing back into the submitted sheet ---------- */
+  function setCellPrice(ws,r,c,price){
+    var addr=XLSX.utils.encode_cell({r:r,c:c}), cell=ws[addr];
+    if(price===null){
+      if(cell){ cell.t="s"; cell.v=""; delete cell.w; delete cell.f; delete cell.z; }
+      return;
+    }
+    if(!cell){ cell={}; ws[addr]=cell; }
+    cell.t="n"; cell.v=price; delete cell.w; delete cell.f;
+  }
+
+  /* keep only these source rows, in order, carrying each cell object across */
+  function keepRows(ws,order,headerRows){
+    var range=XLSX.utils.decode_range(ws["!ref"]), out={}, r, c;
+    for(r=0;r<order.length;r++){
+      for(c=range.s.c;c<=range.e.c;c++){
+        var cell=ws[XLSX.utils.encode_cell({r:order[r],c:c})];
+        if(cell) out[XLSX.utils.encode_cell({r:r,c:c})]=cell;
+      }
+    }
+    out["!ref"]=XLSX.utils.encode_range({s:{r:0,c:range.s.c},e:{r:Math.max(order.length-1,0),c:range.e.c}});
+    if(ws["!cols"]) out["!cols"]=ws["!cols"];
+    if(ws["!rows"]) out["!rows"]=order.map(function(src){ return ws["!rows"][src]; });
+    if(ws["!merges"]) out["!merges"]=ws["!merges"].filter(function(m){ return m.e.r<headerRows; });
+    if(ws["!freeze"]) out["!freeze"]=ws["!freeze"];
+    return out;
+  }
+
+  /* ---------- run ---------- */
+  function processOne(entry,dropUnmatched){
+    return readBook(entry.file).then(function(wb){
+      var t=parseTbs(wb,chosen==="auto"?null:chosen);
+      if(!t) throw new Error("No Campaign Price column in this file");
+      var p=PLATFORMS[t.platform];
+      if(!t.keys.length) throw new Error("No "+p.keys.join(" or ")+" column for "+p.label);
+      var tb=comData.tbs[entry.tb];
+      if(!tb) throw new Error("TB #"+(entry.tb||"?")+" is not in the price file");
+
+      /* the original sheet is edited in place: only the Campaign Price cells change
+         and unmatched rows are dropped, so every other cell keeps its own type,
+         number format, column widths and header rows exactly as submitted */
+      var ws=wb.Sheets[t.sheet];
+      var rows=[], filled=0, dropped=0, noPrice=0;
+
+      for(var i=t.start;i<t.aoa.length;i++){
+        var row=t.aoa[i]||[];
+        var keyVals=t.keys.map(function(k){ return keyOf(row[t.col[k]]); }).filter(Boolean);
+        if(!keyVals.length) continue;
+
+        var hit=priceFor(entry.tb,keyVals), state, price=null;
+        if(hit && hit.found && hit.price!==null){ state="filled"; price=hit.price; filled++; }
+        else if(hit && hit.found){ state="no price"; noPrice++; }
+        else state="not found";
+
+        setCellPrice(ws,i,t.priceCol,price);
+        var rec={src:i,key:keyVals[0],
+                 name:t.col.name!==undefined?norm(row[t.col.name]):(hit?hit.name:""),
+                 sale:t.col.sales!==undefined?norm(row[t.col.sales]):"",
+                 price:price,state:state,kept:true};
+        if(state!=="filled" && dropUnmatched){ dropped++; rec.kept=false; }
+        rows.push(rec);
+      }
+
+      var order=[];
+      for(var h=0;h<t.start;h++) order.push(h);
+      rows.forEach(function(r){ if(r.kept) order.push(r.src); });
+      wb.Sheets[t.sheet]=keepRows(ws,order,t.start);
+
+      return {ok:true,entry:entry,tbId:entry.tb,tb:tb,platform:t.platform,
+              keyHead:t.keys.map(function(k){ return norm(t.head[t.col[k]]); }).join(" / "),
+              total:rows.length,filled:filled,dropped:dropped,noPrice:noPrice,rows:rows,
+              buffer:XLSX.write(wb,{bookType:"xlsx",type:"array",cellStyles:true})};
+    }).catch(function(e){
+      return {ok:false,entry:entry,tbId:entry.tb,error:e&&e.message?e.message:"could not be read"};
+    });
+  }
+
+  $("btnRun").addEventListener("click",function(){
+    var btn=$("btnRun"); btn.disabled=true; btn.textContent="Mapping…";
+    var dropUnmatched=$("optDrop").checked, chain=Promise.resolve([]);
+    tbsFiles.forEach(function(entry){
+      chain=chain.then(function(acc){
+        return processOne(entry,dropUnmatched).then(function(r){ acc.push(r); return acc; });
+      });
+    });
+    chain.then(function(all){
+      outputs=all; render(all);
+      btn.textContent="Map prices"; btn.disabled=false;
+    });
+  });
+
+  function outName(res){
+    var n=res.entry.file.name;
+    return /\.xlsx$/i.test(n)?n:n.replace(/\.[^.]+$/,"")+".xlsx";
+  }
+
+  function render(all){
+    $("idle").hidden=true;
+    var box=$("results"); box.innerHTML="";
+    var ok=all.filter(function(r){return r.ok;});
+    var set={}, filled=0, dropped=0;
+    ok.forEach(function(r){ set[r.tbId]=1; filled+=r.filled; dropped+=r.dropped; });
+
+    $("statsBox").hidden=false;
+    $("sTb").textContent=Object.keys(set).length;
+    $("sFill").textContent=filled;
+    $("sDrop").textContent=dropped;
+    $("sFiles").textContent=ok.length+" / "+all.length;
+    $("btnAll").hidden=ok.length<2;
+
+    all.forEach(function(res){ box.appendChild(res.ok?card(res):errCard(res)); });
+  }
+
+  function errCard(res){
+    var c=el("div","card err"), h=el("div","card-head");
+    h.appendChild(el("span","tbno",res.tbId?("#"+res.tbId):"No TB code"));
+    h.appendChild(el("span","cname",res.entry.file.name));
+    h.appendChild(el("span","pill bad","Not mapped"));
+    c.appendChild(h);
+    var b=el("div","card-body");
+    b.appendChild(el("p","hint",res.error+". Check the platform and the TB code for this file, then run again."));
+    c.appendChild(b); return c;
+  }
+
+  function card(res){
+    var c=el("div","card"), h=el("div","card-head");
+    h.appendChild(el("span","tbno","#"+res.tbId));
+    h.appendChild(el("span","cname",[res.tb.campaign,res.tb.tbName].filter(Boolean).join(" · ")||res.entry.file.name));
+    h.appendChild(el("span","pill plain",PLATFORMS[res.platform].label));
+    var rate=res.total?res.filled/res.total:0;
+    h.appendChild(el("span","pill "+(rate===1?"ok":rate>0?"warn":"bad"),res.filled+" of "+res.total+" SKU filled"));
+    var dl=el("button","btn sm primary","Download");
+    dl.addEventListener("click",function(){ save(res,dl); });
+    h.appendChild(dl);
+    c.appendChild(h);
+
+    var b=el("div","card-body"), m=el("div","metrics");
+    [["SKU in file",res.total,""],["Filled",res.filled,"ok"],
+     ["Removed",res.dropped,"warn"],["No price in file",res.noPrice,""]].forEach(function(p){
+      var d=el("div","metric");
+      d.appendChild(el("div","k",p[0]));
+      var v=el("div","v",p[1]); if(p[2]) v.style.color="var(--"+p[2]+")";
+      d.appendChild(v); m.appendChild(d);
+    });
+    var dk=el("div","metric"); dk.appendChild(el("div","k","Matched on"));
+    dk.appendChild(el("div","v",res.keyHead||"—")); m.appendChild(dk);
+    if(res.tb.tier){ var dt=el("div","metric"); dt.appendChild(el("div","k","Price tier")); dt.appendChild(el("div","v",res.tb.tier)); m.appendChild(dt); }
+    b.appendChild(m);
+    b.appendChild(el("div","srcfile","Saves as "+outName(res)+" — your original file with Campaign Price filled."));
+
+    var det=el("details");
+    det.appendChild(el("summary",null,"Show the "+res.rows.length+" mapped rows"));
+    var wrapT=el("div","tablewrap"), tbl=document.createElement("table");
+    var thead=document.createElement("thead"), trh=document.createElement("tr");
+    [res.keyHead||"Key","Product","Current price","Campaign price","Row"].forEach(function(t,ix){
+      var th=document.createElement("th"); th.textContent=t;
+      if(ix===2||ix===3) th.style.textAlign="right";
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tb=document.createElement("tbody");
+    res.rows.slice(0,300).forEach(function(r){
+      var tr=document.createElement("tr");
+      tr.appendChild(el("td","mono",r.key));
+      tr.appendChild(el("td","name",r.name||"—"));
+      tr.appendChild(el("td","num",r.sale||"—"));
+      tr.appendChild(el("td","num",r.price!==null?r.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):"—"));
+      var c5=document.createElement("td");
+      c5.appendChild(el("span","rowstate "+(r.kept?"keep":"drop"),
+        r.kept?(r.state==="filled"?"filled":"kept"):("removed · "+r.state)));
+      tr.appendChild(c5);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); wrapT.appendChild(tbl); det.appendChild(wrapT);
+    if(res.rows.length>300) det.appendChild(el("p","hint","Showing the first 300 rows — the download contains every row."));
+    b.appendChild(det);
+    c.appendChild(b);
+    return c;
+  }
+
+  /* ---------- download ---------- */
+  var dlNs;
+  function downloads(){
+    if(dlNs!==undefined) return Promise.resolve(dlNs);
+    var use=(window.claude&&window.claude.use)?window.claude.use("downloads"):Promise.resolve(null);
+    return Promise.resolve(use).then(function(ns){ dlNs=ns||null; return dlNs; }).catch(function(){ dlNs=null; return null; });
+  }
+  /* plain browser download; the Claude artifact host supplies its own save API */
+  function browserSave(name,buf){
+    var blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    var url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=name; a.rel="noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); },4000);
+  }
+  function save(res,btn){
+    var label=btn?btn.textContent:"", name=outName(res);
+    if(btn){ btn.disabled=true; btn.textContent="Saving\u2026"; }
+    return downloads().then(function(ns){
+      if(!ns){ browserSave(name,res.buffer.slice(0)); toast("Saved "+name); return; }
+      return ns.save({filename:name,data:res.buffer.slice(0)}).then(function(){
+        toast("Saved "+name);
+      }).catch(function(err){
+        var code=err&&err.code;
+        if(code==="declined") return;
+        toast(code==="too_large"?"That file is too large to save":"Could not save the file");
+      });
+    }).then(function(){
+      if(btn){ btn.disabled=false; btn.textContent=label; }
+    });
+  }
+  $("btnAll").addEventListener("click",function(){
+    var btn=$("btnAll"); btn.disabled=true;
+    var chain=Promise.resolve();
+    outputs.forEach(function(res){ if(res.ok) chain=chain.then(function(){ return save(res,null); }); });
+    chain.then(function(){ btn.disabled=false; });
+  });
+
+  paintChips();
+})();
+</script>
+</body>
+</html>
