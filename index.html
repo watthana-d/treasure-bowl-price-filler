@@ -147,7 +147,11 @@
   details summary::-webkit-details-marker{display:none}
   details summary::before{content:"\25b8 ";font-size:10px}
   details[open] summary::before{content:"\25be "}
-  .foot{margin-top:28px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  .foot{margin-top:28px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line);padding-top:14px;
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+  .foot p{margin:0;flex:1;min-width:240px}
+  .ver{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.04em;color:var(--ink-3);
+    background:var(--surface-2);border:1px solid var(--line-soft);border-radius:999px;padding:3px 9px;white-space:nowrap}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));
     background:var(--ink);color:var(--ground);padding:9px 15px;border-radius:999px;font-size:13px;z-index:20;box-shadow:var(--shadow)}
   .sel{font:inherit;font-size:12.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--line);
@@ -234,13 +238,20 @@
     </div>
   </div>
 
-  <p class="foot">Files are read in your browser — nothing is uploaded. The download is your own TB file — same filename, same sheet, same columns, header and note rows, column widths and cell types. Only Campaign Price is written, and unmatched rows removed if you asked for that.</p>
+  <div class="foot">
+    <p>Files are read in your browser — nothing is uploaded. The download is your own TB file, edited inside the original workbook — same filename, sheet, columns, header and instruction rows, fills, fonts, number formats, column widths and data validation. Only Campaign Price is written, and unmatched rows removed if you asked for that.</p>
+    <span class="ver" id="ver" title="Version"></span>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/fflate.min.js"></script>
 <script>
 (function(){
   "use strict";
+  var VERSION="1.0.0";
+  var verEl=document.getElementById("ver");
+  if(verEl) verEl.textContent="v"+VERSION;
   if(typeof XLSX==="undefined"){
     var w=document.createElement("div"); w.className="note"; w.style.marginTop="16px";
     w.textContent="The spreadsheet engine could not load. Reload the page — if it keeps failing, your network may be blocking the script.";
@@ -293,7 +304,10 @@
   $("btnTbs").addEventListener("click",function(){ $("fileTbs").click(); });
 
   function readBook(file){
-    return file.arrayBuffer().then(function(buf){ return XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true}); });
+    return readBytes(file).then(function(u8){ return XLSX.read(u8,{type:"array",cellStyles:true}); });
+  }
+  function readBytes(file){
+    return file.arrayBuffer().then(function(buf){ return new Uint8Array(buf); });
   }
   function aoaOf(ws){ return XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:null,blankrows:true}); }
 
@@ -749,11 +763,13 @@
     }
     var keys=PLATFORMS[platform].keys.filter(function(k){ return col[k]!==undefined; });
 
-    /* first data row: skip the "Optional / Mandatory" and description rows Shopee ships */
-    var probe=keys.length?col[keys[0]]:0, start=headIx+1;
+    /* first data row: skip the "Optional / Mandatory" row and the instruction row
+       Shopee and TikTok ship under the header */
+    var probe=keys.length?col[keys[0]]:0, numeric=keys.length&&/Id$/.test(keys[0]), start=headIx+1;
     while(start<aoa.length){
       var row2=aoa[start]||[], cell=norm(row2[probe]), lc=low(cell);
-      if(cell && lc!=="optional" && lc!=="mandatory" && cell.length<=60) break;
+      if(cell && lc!=="optional" && lc!=="mandatory" &&
+         (numeric ? /^\d{4,}$/.test(cell) : (cell.length<=60 && cell.indexOf(" ")<0))) break;
       start++;
     }
     return {sheet:sheet,aoa:aoa,head:head,col:col,keys:keys,priceCol:priceCol,
@@ -784,37 +800,127 @@
     return {found:false,price:null,name:""};
   }
 
-  /* ---------- writing back into the submitted sheet ---------- */
-  function setCellPrice(ws,r,c,price){
-    var addr=XLSX.utils.encode_cell({r:r,c:c}), cell=ws[addr];
-    if(price===null){
-      if(cell){ cell.t="s"; cell.v=""; delete cell.w; delete cell.f; delete cell.z; }
-      return;
-    }
-    if(!cell){ cell={}; ws[addr]=cell; }
-    cell.t="n"; cell.v=price; delete cell.w; delete cell.f;
+  /* ---------- writing back into the submitted file ----------
+     The .xlsx is a zip. Only the worksheet XML is touched: its Campaign Price
+     cells get a new value and dropped rows are removed. Every other part of the
+     archive — styles, fonts, fills, number formats, data validation, conditional
+     formatting, defined names, other sheets — is written back byte for byte, so
+     the submitted file keeps the exact format the platform issued it in. */
+  var COL=/^[A-Z]+/;
+
+  function sheetPathOf(files){
+    var dec=new TextDecoder();
+    var wbXml=dec.decode(files["xl/workbook.xml"]);
+    var sheets=wbXml.match(/<sheets>[\s\S]*?<\/sheets>/);
+    if(!sheets) return null;
+    var first=sheets[0].match(/<sheet\b[^>]*>/);
+    if(!first) return null;
+    var rid=first[0].match(/r:id="([^"]+)"/);
+    if(!rid) return null;
+    var relsXml=dec.decode(files["xl/_rels/workbook.xml.rels"]);
+    var rel=relsXml.match(new RegExp('<Relationship[^>]*\\bId="'+rid[1]+'"[^>]*>'));
+    if(!rel) return null;
+    var tgt=rel[0].match(/Target="([^"]+)"/);
+    if(!tgt) return null;
+    var path=tgt[1];
+    if(path.charAt(0)==="/") return path.slice(1);
+    return "xl/"+path.replace(/^\.\//,"");
   }
 
-  /* keep only these source rows, in order, carrying each cell object across */
-  function keepRows(ws,order,headerRows){
-    var range=XLSX.utils.decode_range(ws["!ref"]), out={}, r, c;
-    for(r=0;r<order.length;r++){
-      for(c=range.s.c;c<=range.e.c;c++){
-        var cell=ws[XLSX.utils.encode_cell({r:order[r],c:c})];
-        if(cell) out[XLSX.utils.encode_cell({r:r,c:c})]=cell;
+  /* edits: [{row: 1-based row number, col: "K", price: number|null}]
+     keep: the 1-based row numbers to survive, in order */
+  function patchWorkbook(bytes,edits,keep){
+    var files=fflate.unzipSync(bytes);
+    var path=sheetPathOf(files);
+    if(!path||!files[path]) throw new Error("sheet XML not found");
+
+    var dec=new TextDecoder(), enc=new TextEncoder();
+    var xml=dec.decode(files[path]);
+    var decl=xml.match(/^<\?xml[^>]*\?>\s*/);
+    var doc=new DOMParser().parseFromString(xml,"application/xml");
+    if(doc.getElementsByTagName("parsererror").length) throw new Error("sheet XML unreadable");
+
+    var sheetData=doc.getElementsByTagName("sheetData")[0];
+    if(!sheetData) throw new Error("sheet has no data");
+
+    var byNum={}, rowEls=[].slice.call(sheetData.getElementsByTagName("row"));
+    rowEls.forEach(function(el){ byNum[el.getAttribute("r")]=el; });
+
+    /* 1 — write the prices */
+    edits.forEach(function(e){
+      var rowEl=byNum[String(e.row)]; if(!rowEl) return;
+      var addr=e.col+e.row, cells=[].slice.call(rowEl.getElementsByTagName("c")), cell=null, before=null;
+      for(var i=0;i<cells.length;i++){
+        var r=cells[i].getAttribute("r");
+        if(r===addr){ cell=cells[i]; break; }
+        if(before===null && colIndex(r)>colIndex(addr)) before=cells[i];
       }
+      if(!cell){
+        cell=doc.createElementNS(sheetData.namespaceURI,"c");
+        cell.setAttribute("r",addr);
+        rowEl.insertBefore(cell,before);
+      }
+      while(cell.firstChild) cell.removeChild(cell.firstChild);
+      cell.removeAttribute("t");          /* numeric is the default type */
+      if(e.price!==null){
+        var v=doc.createElementNS(sheetData.namespaceURI,"v");
+        v.appendChild(doc.createTextNode(String(e.price)));
+        cell.appendChild(v);
+      }
+    });
+
+    /* 2 — drop the rows that were not kept, then renumber what is left */
+    var keepSet={}; keep.forEach(function(n){ keepSet[n]=true; });
+    rowEls.forEach(function(el){
+      if(!keepSet[Number(el.getAttribute("r"))]) sheetData.removeChild(el);
+    });
+    var live=[].slice.call(sheetData.getElementsByTagName("row")), lastCol="A";
+    live.forEach(function(el,ix){
+      var n=ix+1;
+      el.setAttribute("r",String(n));
+      [].slice.call(el.getElementsByTagName("c")).forEach(function(c){
+        var letters=(c.getAttribute("r")||"A").match(COL);
+        letters=letters?letters[0]:"A";
+        if(colIndex(letters+"1")>colIndex(lastCol+"1")) lastCol=letters;
+        c.setAttribute("r",letters+n);
+      });
+    });
+
+    /* 3 — the sheet's stated extent */
+    var dim=doc.getElementsByTagName("dimension")[0];
+    if(dim) dim.setAttribute("ref","A1:"+lastCol+Math.max(live.length,1));
+
+    var out=new XMLSerializer().serializeToString(doc);
+    if(!/^<\?xml/.test(out)) out=(decl?decl[0]:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n')+out;
+    files[path]=enc.encode(out);
+
+    /* 4 — a stale formula cache would make Excel complain about the edited cells */
+    if(files["xl/calcChain.xml"]){
+      delete files["xl/calcChain.xml"];
+      files["[Content_Types].xml"]=enc.encode(
+        dec.decode(files["[Content_Types].xml"]).replace(/<Override[^>]*calcChain[^>]*\/>/,""));
+      files["xl/_rels/workbook.xml.rels"]=enc.encode(
+        dec.decode(files["xl/_rels/workbook.xml.rels"]).replace(/<Relationship[^>]*calcChain[^>]*\/>/,""));
     }
-    out["!ref"]=XLSX.utils.encode_range({s:{r:0,c:range.s.c},e:{r:Math.max(order.length-1,0),c:range.e.c}});
-    if(ws["!cols"]) out["!cols"]=ws["!cols"];
-    if(ws["!rows"]) out["!rows"]=order.map(function(src){ return ws["!rows"][src]; });
-    if(ws["!merges"]) out["!merges"]=ws["!merges"].filter(function(m){ return m.e.r<headerRows; });
-    if(ws["!freeze"]) out["!freeze"]=ws["!freeze"];
-    return out;
+    return fflate.zipSync(files,{level:6});
+  }
+
+  function colIndex(addr){
+    var m=(addr||"").match(COL); if(!m) return -1;
+    var s=m[0], n=0;
+    for(var i=0;i<s.length;i++) n=n*26+(s.charCodeAt(i)-64);
+    return n;
+  }
+  function colName(ix){
+    var s=""; ix+=1;
+    while(ix>0){ var r=(ix-1)%26; s=String.fromCharCode(65+r)+s; ix=(ix-r-1)/26; }
+    return s;
   }
 
   /* ---------- run ---------- */
   function processOne(entry,dropUnmatched){
-    return readBook(entry.file).then(function(wb){
+    return readBytes(entry.file).then(function(bytes){
+      var wb=XLSX.read(bytes,{type:"array",cellStyles:true});
       var t=parseTbs(wb,chosen==="auto"?null:chosen);
       if(!t) throw new Error("No Campaign Price column in this file");
       var p=PLATFORMS[t.platform];
@@ -822,11 +928,8 @@
       var tb=comData.tbs[entry.tb];
       if(!tb) throw new Error("TB #"+(entry.tb||"?")+" is not in the price file");
 
-      /* the original sheet is edited in place: only the Campaign Price cells change
-         and unmatched rows are dropped, so every other cell keeps its own type,
-         number format, column widths and header rows exactly as submitted */
-      var ws=wb.Sheets[t.sheet];
-      var rows=[], filled=0, dropped=0, noPrice=0;
+      var rows=[], filled=0, dropped=0, noPrice=0, edits=[];
+      var rowOffset=1;  /* aoa index 0 is spreadsheet row 1 */
 
       for(var i=t.start;i<t.aoa.length;i++){
         var row=t.aoa[i]||[];
@@ -838,7 +941,7 @@
         else if(hit && hit.found){ state="no price"; noPrice++; }
         else state="not found";
 
-        setCellPrice(ws,i,t.priceCol,price);
+        edits.push({row:i+rowOffset,col:colName(t.priceCol),price:price});
         var rec={src:i,key:keyVals[0],
                  name:t.col.name!==undefined?norm(row[t.col.name]):(hit?hit.name:""),
                  sale:t.col.sales!==undefined?norm(row[t.col.sales]):"",
@@ -847,15 +950,43 @@
         rows.push(rec);
       }
 
-      var order=[];
-      for(var h=0;h<t.start;h++) order.push(h);
-      rows.forEach(function(r){ if(r.kept) order.push(r.src); });
-      wb.Sheets[t.sheet]=keepRows(ws,order,t.start);
+      var keep=[];
+      for(var h=0;h<t.start;h++) keep.push(h+rowOffset);
+      rows.forEach(function(r){ if(r.kept) keep.push(r.src+rowOffset); });
 
-      return {ok:true,entry:entry,tbId:entry.tb,tb:tb,platform:t.platform,
+      var buffer, kept="in place";
+      try{
+        if(typeof fflate==="undefined") throw new Error("zip library unavailable");
+        buffer=patchWorkbook(bytes,edits,keep);
+      }catch(err){
+        /* last resort: rebuild the sheet, which keeps values and widths but not styling */
+        console.warn("in-place edit failed, rebuilding sheet:",err);
+        kept="rebuilt";
+        var ws=wb.Sheets[t.sheet];
+        edits.forEach(function(e){
+          var addr=e.col+e.row, cell=ws[addr];
+          if(e.price===null){ if(cell){ cell.t="s"; cell.v=""; delete cell.w; delete cell.f; } return; }
+          if(!cell){ cell={}; ws[addr]=cell; }
+          cell.t="n"; cell.v=e.price; delete cell.w; delete cell.f;
+        });
+        var range=XLSX.utils.decode_range(ws["!ref"]), out={};
+        keep.forEach(function(src,dst){
+          for(var c=range.s.c;c<=range.e.c;c++){
+            var cell=ws[XLSX.utils.encode_cell({r:src-1,c:c})];
+            if(cell) out[XLSX.utils.encode_cell({r:dst,c:c})]=cell;
+          }
+        });
+        out["!ref"]=XLSX.utils.encode_range({s:{r:0,c:range.s.c},e:{r:Math.max(keep.length-1,0),c:range.e.c}});
+        if(ws["!cols"]) out["!cols"]=ws["!cols"];
+        if(ws["!merges"]) out["!merges"]=ws["!merges"].filter(function(m){ return m.e.r<t.start; });
+        wb.Sheets[t.sheet]=out;
+        buffer=XLSX.write(wb,{bookType:"xlsx",type:"array",cellStyles:true});
+      }
+
+      return {ok:true,entry:entry,tbId:entry.tb,tb:tb,platform:t.platform,kept:kept,
               keyHead:t.keys.map(function(k){ return norm(t.head[t.col[k]]); }).join(" / "),
               total:rows.length,filled:filled,dropped:dropped,noPrice:noPrice,rows:rows,
-              buffer:XLSX.write(wb,{bookType:"xlsx",type:"array",cellStyles:true})};
+              buffer:buffer};
     }).catch(function(e){
       return {ok:false,entry:entry,tbId:entry.tb,error:e&&e.message?e.message:"could not be read"};
     });
@@ -932,7 +1063,7 @@
     dk.appendChild(el("div","v",res.keyHead||"—")); m.appendChild(dk);
     if(res.tb.tier){ var dt=el("div","metric"); dt.appendChild(el("div","k","Price tier")); dt.appendChild(el("div","v",res.tb.tier)); m.appendChild(dt); }
     b.appendChild(m);
-    b.appendChild(el("div","srcfile","Saves as "+outName(res)+" — your original file with Campaign Price filled."));
+    b.appendChild(el("div","srcfile","Saves as "+outName(res)+" — your original file, formatting untouched, with Campaign Price filled."));
 
     var det=el("details");
     det.appendChild(el("summary",null,"Show the "+res.rows.length+" mapped rows"));
